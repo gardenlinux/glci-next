@@ -121,6 +121,38 @@ func (p *aws) Repository() string {
 	return p.srcCfg.Bucket
 }
 
+func (p *aws) GetObjectURL(key string) string {
+	return fmt.Sprintf("https://%s.s3.amazonaws.com/%s", p.srcCfg.Bucket, key)
+}
+
+func (p *aws) GetObjectSize(ctx context.Context, key string) (int64, error) {
+	if p.srcS3Client == nil {
+		return 0, errors.New("config not set")
+	}
+	ctx = log.WithValues(ctx, "source", p.Type())
+
+	log.Debug(ctx, "Heading object", "bucket", p.srcCfg.Bucket, "key", key)
+	r, err := p.srcS3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: &p.srcCfg.Bucket,
+		Key:    &key,
+	})
+	if err != nil {
+		var noSuchKey *s3types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			err = KeyNotFoundError{
+				err: err,
+			}
+		}
+
+		return 0, fmt.Errorf("cannot head object %s from bucket %s: %w", key, p.srcCfg.Bucket, err)
+	}
+	if r.ContentLength == nil {
+		return 0, fmt.Errorf("cannot head object %s from bucket %s: missing content length", key, p.srcCfg.Bucket)
+	}
+
+	return *r.ContentLength, nil
+}
+
 func (p *aws) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
 	if p.srcS3Client == nil {
 		return nil, errors.New("config not set")
@@ -235,14 +267,14 @@ func (p *aws) Publish(ctx context.Context, cname string, manifest *gl.Manifest, 
 	if err != nil {
 		return nil, fmt.Errorf("missing image: %w", err)
 	}
-	var architecture ec2types.ArchitectureValues
-	architecture, err = p.architecture(manifest.Architecture)
+	var arch ec2types.ArchitectureValues
+	arch, err = p.architecture(manifest.Architecture)
 	if err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", cname, err)
 	}
 	tags := p.prepareTags(manifest)
 	var output awsPublishingOutput
-	ctx = log.WithValues(ctx, "target", p.Type(), "image", image, "architecture", architecture)
+	ctx = log.WithValues(ctx, "target", p.Type(), "image", image, "architecture", arch)
 
 	for _, target := range p.pubCfg.Targets {
 		source := sources[target.Source]
@@ -283,7 +315,7 @@ func (p *aws) Publish(ctx context.Context, cname string, manifest *gl.Manifest, 
 		}
 
 		var imageID string
-		imageID, err = p.registerImage(lctx, ec2Client, snapshot, image, architecture, requireUEFI, uefiData)
+		imageID, err = p.registerImage(lctx, ec2Client, snapshot, image, arch, requireUEFI, uefiData)
 		if err != nil {
 			return nil, fmt.Errorf("cannot register image %s from snapshot %s: %w", image, snapshot, err)
 		}
@@ -400,9 +432,9 @@ type awsImageTags struct {
 type awsPublishingOutput []awsPublishedImage
 
 type awsPublishedImage struct {
-	Region string `mapstructure:"region"`
-	AMIID  string `mapstructure:"ami_id"`
-	Name   string `mapstructure:"name"`
+	Region string `yaml:"region"`
+	AMIID  string `yaml:"ami_id"`
+	Name   string `yaml:"name"`
 }
 
 func (*aws) imageName(cname, version, committish string) string {
@@ -460,8 +492,8 @@ func (p *aws) prepareTags(manifest *gl.Manifest) []ec2types.Tag {
 func (*aws) prepareSecureBoot(ctx context.Context, source ArtifactSource, manifest *gl.Manifest) (bool, bool, *string, error) {
 	requireUEFI := manifest.RequireUEFI != nil && *manifest.RequireUEFI
 	secureBoot := manifest.SecureBoot != nil && *manifest.SecureBoot
-
 	var uefiData *string
+
 	if secureBoot {
 		efivarsFile, err := manifest.PathBySuffix(".secureboot.aws-efivars")
 		if err != nil {
@@ -568,12 +600,12 @@ func (*aws) attachTags(ctx context.Context, ec2Client *ec2.Client, obj string, t
 	return nil
 }
 
-func (*aws) registerImage(ctx context.Context, ec2Client *ec2.Client, snapshot, image string, architecture ec2types.ArchitectureValues,
+func (*aws) registerImage(ctx context.Context, ec2Client *ec2.Client, snapshot, image string, arch ec2types.ArchitectureValues,
 	requireUEFI bool, uefiData *string,
 ) (string, error) {
 	params := ec2.RegisterImageInput{
 		Name:         &image,
-		Architecture: architecture,
+		Architecture: arch,
 		BlockDeviceMappings: []ec2types.BlockDeviceMapping{{
 			DeviceName: ptr.P("/dev/xvda"),
 			Ebs: &ec2types.EbsBlockDevice{

@@ -18,6 +18,8 @@ type ArtifactSource interface {
 	SetSourceConfig(ctx context.Context, config map[string]any) error
 	Close() error
 	Repository() string
+	GetObjectURL(key string) string
+	GetObjectSize(ctx context.Context, key string) (int64, error)
 	GetObject(ctx context.Context, key string) (io.ReadCloser, error)
 	GetObjectBytes(ctx context.Context, key string) ([]byte, error)
 	GetManifest(ctx context.Context, key string) (*gl.Manifest, error)
