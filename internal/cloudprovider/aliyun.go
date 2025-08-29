@@ -222,9 +222,9 @@ type aliyunPublishingConfig struct {
 type aliyunPublishingOutput []aliyunPublishedImage
 
 type aliyunPublishedImage struct {
-	Region string `mapstructure:"region"`
-	ID     string `mapstructure:"id"`
-	Name   string `mapstructure:"name"`
+	Region string `yaml:"region"`
+	ID     string `yaml:"id"`
+	Name   string `yaml:"name"`
 }
 
 func (*aliyun) imageName(cname, version, committish string) string {

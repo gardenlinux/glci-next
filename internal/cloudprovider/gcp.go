@@ -126,14 +126,14 @@ func (p *gcp) Publish(ctx context.Context, cname string, manifest *gl.Manifest, 
 	if err != nil {
 		return nil, fmt.Errorf("missing image: %w", err)
 	}
-	var architecture string
-	architecture, err = p.architecture(manifest.Architecture)
+	var arch string
+	arch, err = p.architecture(manifest.Architecture)
 	if err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", cname, err)
 	}
 	source := sources[p.pubCfg.Source]
 	project := p.creds[p.pubCfg.Config].Project
-	ctx = log.WithValues(ctx, "target", p.Type(), "image", image, "architecture", architecture, "sourceType", source.Type(),
+	ctx = log.WithValues(ctx, "target", p.Type(), "image", image, "architecture", arch, "sourceType", source.Type(),
 		"sourceRepo", source.Repository(), "project", project)
 
 	var secureBoot bool
@@ -151,7 +151,7 @@ func (p *gcp) Publish(ctx context.Context, cname string, manifest *gl.Manifest, 
 		return nil, fmt.Errorf("cannot upload blob for image %s in project %s: %w", image, project, err)
 	}
 
-	err = p.insertImage(ctx, blobURL, image, architecture, secureBoot, pk, kek, db)
+	err = p.insertImage(ctx, blobURL, image, arch, secureBoot, pk, kek, db)
 	if err != nil {
 		return nil, fmt.Errorf("cannot insert image %s from blob %s in project %s: %w", image, blob.ObjectName(), project, err)
 	}
@@ -209,8 +209,8 @@ type gcpPublishingConfig struct {
 }
 
 type gcpPublishingOutput struct {
-	Project string `mapstructure:"project"`
-	Name    string `mapstructure:"name"`
+	Project string `yaml:"project"`
+	Name    string `yaml:"name"`
 }
 
 func (*gcp) imageName(cname, version, committish string) string {
@@ -321,10 +321,10 @@ func (p *gcp) uploadBlob(ctx context.Context, source ArtifactSource, key, image 
 	return blob, url, nil
 }
 
-func (p *gcp) insertImage(ctx context.Context, disk, image, architecture string, secureBoot bool, pk, kek, db string) error {
+func (p *gcp) insertImage(ctx context.Context, disk, image, arch string, secureBoot bool, pk, kek, db string) error {
 	project := p.creds[p.pubCfg.Config].Project
 	imageResource := &computepb.Image{
-		Architecture: &architecture,
+		Architecture: &arch,
 		GuestOsFeatures: []*computepb.GuestOsFeature{
 			{
 				Type: ptr.P("VIRTIO_SCSI_MULTIQUEUE"),
